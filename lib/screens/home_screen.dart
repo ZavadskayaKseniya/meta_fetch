@@ -12,6 +12,7 @@ import 'package:flutter_exif_plugin/flutter_exif_plugin.dart';
 import 'package:native_exif/native_exif.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:pulp_flash/pulp_flash.dart';
+import 'package:gallery_saver/gallery_saver.dart';
 
 class HomeScreen extends StatefulWidget {
   HomeScreen({Key? key}) : super(key: key);
@@ -44,63 +45,134 @@ class _HomeScreenState extends State<HomeScreen> {
       // final attrs = await exif.getAttributes();
       // print(attrs?.keys.toList());
 
-      setState(() async {
-        _meta = await readExifFromFile(_imageFile!);
+      final res = await readExifFromFile(_imageFile!);
+      setState(() {
+        _meta = res;
       });
     }
+  }
+
+  Future<void> _exportImage() async {
+    if (_imageFile == null || _newImage == null) {
+      showCupertinoDialog(
+          context: context,
+          builder: (context) {
+            return CupertinoAlertDialog(
+              title: const Text('No Image'),
+              content: const Text('Please upload an image first.  '),
+              actions: [
+                CupertinoDialogAction(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  child: const Text('OK'),
+                ),
+              ],
+            );
+          });
+    }
+    try {
+      final File? newFile = await _imageFile?.writeAsBytes(_newImage!);
+
+      final exif = await Exif.fromPath(newFile!.path);
+      final newFileAttrs = await exif.getAttributes();
+      print('NEW FILE ATTRS > ${newFileAttrs?.keys.toList()}');
+
+      final meta = await readExifFromFile(newFile);
+      print("NEW FILE META > ${meta.toString()}");
+
+      await GallerySaver.saveImage(newFile.path);
+
+      PulpFlash.of(context).showMessage(
+        context,
+        inputMessage: Message(
+            displayDuration: const Duration(seconds: 3),
+            status: FlashStatus.successful,
+            title: 'Image Saved'),
+      );
+    } catch (e) {
+      print('ERROR > $e');
+    }
+  }
+
+  void _editImage() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => EditScreen(
+          meta: _meta,
+          onRemoveAllPressed: _removeAllCallback,
+          onSavePressed: _onSaveCallback,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _removeAllCallback() async {
+    // Compress image and remove EXIF Metadata
+    try {
+      final res = await FlutterImageCompress.compressWithFile(_imageFile!.path);
+      final exifRes = await readExifFromBytes(res!);
+      // Read EXIF Metadata from compressed image
+      setState(() {
+        _newImage = res;
+        _meta = exifRes;
+      });
+      // ignore: use_build_context_synchronously
+      PulpFlash.of(context).showMessage(context,
+          inputMessage: Message(
+              displayDuration: const Duration(seconds: 3),
+              status: FlashStatus.successful,
+              title: 'EXIF Metadata Removed'));
+    } catch (e) {
+      print('ERROR > $e');
+    }
+  }
+
+  Future<void> _onSaveCallback(dynamic newMeta) async {
+    print('NEW META > $newMeta');
+    final file = await Exif.fromPath(_imageFile!.path);
+    final attrs = await file.getAttributes();
+    if (newMeta['dateTime'] != '') {
+      await file.writeAttribute('DateTimeOriginal', newMeta['dateTime']);
+      await file.writeAttribute('DateTimeDigitized', newMeta['dateTime']);
+    }
+    if (newMeta['latitude'] != '') {
+      await file.writeAttribute('GPSLatitude', newMeta['latitude']);
+    }
+    if (newMeta['longitude'] != '') {
+      await file.writeAttribute('GPSLongitude', newMeta['longitude']);
+    }
+
+    final res = await file.getAttribute('DateTimeOriginal');
+    print('ON SAVE > Image DateTime: ${res}');
+    await file.close();
+
+    final exifRes = await readExifFromFile(_imageFile!);
+    final newImage = await FlutterImageCompress.compressWithFile(
+        _imageFile!.path,
+        keepExif: true);
+    setState(() {
+      _newImage = newImage;
+      _meta = exifRes;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: _AppBar(),
-      body: _Body(_meta),
+      appBar: appBar(),
+      body: body(_meta),
       backgroundColor: Colors.black,
     );
   }
 
-  _AppBar() {
+  appBar() {
     return AppBar(
       title: const Text("Metadata Editor"),
       actions: [
         if (_imageFile != null)
           IconButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => EditScreen(
-                    meta: _meta,
-                    onRemoveAllPressed: () async {
-                      // Compress image and remove EXIF Metadata
-                      try {
-                        final res = await FlutterImageCompress.compressWithFile(
-                            _imageFile!.path);
-                        final exifRes = await readExifFromBytes(res!);
-                        // Read EXIF Metadata from compressed image
-                        setState(() {
-                          _newImage = res;
-                          _meta = exifRes;
-                        });
-                        // ignore: use_build_context_synchronously
-                        PulpFlash.of(context).showMessage(context,
-                            inputMessage: Message(
-                                displayDuration: const Duration(seconds: 3),
-                                status: FlashStatus.successful,
-                                title: 'EXIF Metadata Removed'));
-                      } catch (e) {
-                        print('ERROR > $e');
-                      }
-                    },
-                    onSavePressed: (dynamic newMetadata) {
-                      print('NEW META > $newMetadata');
-                      setState(() {
-                        _meta = newMetadata;
-                      });
-                    },
-                  ),
-                ),
-              );
-            },
+            onPressed: _editImage,
             icon: const Icon(Icons.edit),
           ),
       ],
@@ -116,30 +188,38 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  _UploadButton() {
+  uploadButton() {
     return FloatingActionButton(
       onPressed: () {
-        showDialog(
+        showCupertinoModalPopup(
           context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Select Image Source'),
-            actions: [
-              TextButton(
+          builder: (BuildContext context) {
+            return CupertinoActionSheet(
+              title: Text('Select Image'),
+              actions: <Widget>[
+                CupertinoActionSheetAction(
+                  child: Text('Gallery'),
+                  onPressed: () {
+                    _uploadImage(ImageSource.gallery);
+                    Navigator.of(context).pop();
+                  },
+                ),
+                CupertinoActionSheetAction(
+                  child: Text('Camera'),
+                  onPressed: () {
+                    _uploadImage(ImageSource.camera);
+                    Navigator.of(context).pop();
+                  },
+                ),
+              ],
+              cancelButton: CupertinoActionSheetAction(
+                child: Text('Cancel'),
                 onPressed: () {
-                  Navigator.pop(context);
-                  _uploadImage(ImageSource.gallery);
+                  Navigator.of(context).pop();
                 },
-                child: const Text('Gallery'),
               ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _uploadImage(ImageSource.camera);
-                },
-                child: const Text('Camera'),
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
       tooltip: 'Upload Image',
@@ -147,14 +227,14 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  _ExportButton() {
+  exportButton() {
     return FloatingActionButton(
       backgroundColor: _newImage != null ? Colors.purple : Colors.grey,
       onPressed: (_newImage != null)
           ? () {
-              showDialog(
+              showCupertinoDialog(
                 context: context,
-                builder: (context) => AlertDialog(
+                builder: (context) => CupertinoAlertDialog(
                   title: const Text('Export a new image?'),
                   actions: [
                     TextButton(
@@ -164,39 +244,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: const Text('Cancel'),
                     ),
                     TextButton(
-                      onPressed: () {
+                      onPressed: () async {
                         Navigator.pop(context);
-                        //TODO: Save image
-                        if (_imageFile == null || _newImage == null) {
-                          showCupertinoDialog(
-                              context: context,
-                              builder: (context) {
-                                return CupertinoAlertDialog(
-                                  title: const Text('No Image'),
-                                  content: const Text(
-                                      'Please upload an image first.  '),
-                                  actions: [
-                                    CupertinoDialogAction(
-                                      onPressed: () {
-                                        Navigator.pop(context);
-                                      },
-                                      child: const Text('OK'),
-                                    ),
-                                  ],
-                                );
-                              });
-                        }
-                        _imageFile?.writeAsBytes(_newImage!).then((value) {
-                          PulpFlash.of(context).showMessage(context,
-                              inputMessage: Message(
-                                  displayDuration: const Duration(seconds: 3),
-                                  status: FlashStatus.successful,
-                                  title: 'Image Saved'));
-                        }).catchError((e) {
-                          print('ERROR > $e');
-                        });
+                        _exportImage();
                       },
-                      child: const Text('Save'),
+                      child: const Text('Export'),
                     ),
                   ],
                 ),
@@ -208,7 +260,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  _Body(dynamic meta) {
+  metaItem([String value = '']) {
+    return Text(
+      value,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 16,
+      ),
+    );
+  }
+
+  body(dynamic meta) {
     print('BODY > META > $meta');
     return Stack(
       alignment: Alignment.bottomRight,
@@ -259,48 +321,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     //     fontSize: 16,
                     //   ),
                     // ),
-                    Text(
-                      'Image Make: ${meta?['Image Make']}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                      ),
-                    ),
-                    Text(
-                      'Image Model: ${meta?['Image Model']}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                      ),
-                    ),
-                    Text(
-                      'Image Artist: ${meta?['Image Artist']}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                      ),
-                    ),
-                    Text(
-                      'Image DateTime: ${meta?['Image DateTime']}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                      ),
-                    ),
-                    Text(
-                      'GPSLatitude: ${meta?['GPS GPSLatitude']}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                      ),
-                    ),
-                    Text(
-                      'GPSLongitude: ${meta?['GPS GPSLongitude']}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                      ),
-                    ),
+                    metaItem('Make: ${meta?['Image Make'].toString()}'),
+                    metaItem('Model: ${meta?['Image Model'].toString()}'),
+                    metaItem('Artist: ${meta?['Image Artist'].toString()}'),
+                    metaItem('DateTime: ${meta?['Image DateTime'].toString()}'),
+                    metaItem('GPS Lat: ${meta?['GPS GPSLatitude'].toString()}'),
+                    metaItem(
+                        'GPS Long: ${meta?['GPS GPSLongitude'].toString()}'),
                   ],
                 ),
               ),
@@ -311,9 +338,9 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                _UploadButton(),
+                uploadButton(),
                 const SizedBox(width: 8),
-                _ExportButton(),
+                exportButton(),
               ],
             ))
       ],

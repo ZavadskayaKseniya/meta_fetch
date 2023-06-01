@@ -38,6 +38,18 @@ class _EditScreenState extends State<EditScreen> {
     longitudeText.text = widget.meta['GPS GPSLongitude'].toString();
   }
 
+  void _onSave() {
+    widget.onSavePressed({
+      'make': makeText.text,
+      'model': modelText.text,
+      'artist': artistText.text,
+      'dateTime': dateTimeText.text,
+      'latitude': latitudeText.text,
+      'longitude': longitudeText.text,
+    });
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     print(widget.meta);
@@ -45,10 +57,7 @@ class _EditScreenState extends State<EditScreen> {
       appBar: AppBar(
         actions: [
           IconButton(
-            onPressed: () => {
-              widget.onSavePressed(widget.meta),
-              Navigator.of(context).pop()
-            },
+            onPressed: _onSave,
             icon: const Icon(Icons.save),
           ),
         ],
@@ -124,7 +133,7 @@ class _EditScreenState extends State<EditScreen> {
           children: [
             TextField(
               controller: makeText,
-              onChanged: (value) => widget.meta['Image Make'] = value,
+              enabled: false,
               decoration: InputDecoration(
                 border: OutlineInputBorder(),
                 labelText: 'Image Make',
@@ -134,8 +143,7 @@ class _EditScreenState extends State<EditScreen> {
             SizedBox(height: 10),
             TextField(
               controller: modelText,
-              onChanged: (value) =>
-                  widget.meta['Image Model'] = value as IfdTag,
+              enabled: false,
               decoration: InputDecoration(
                 border: OutlineInputBorder(),
                 labelText: 'Image Model',
@@ -145,6 +153,7 @@ class _EditScreenState extends State<EditScreen> {
             SizedBox(height: 10),
             TextField(
               controller: artistText,
+              enabled: false,
               decoration: InputDecoration(
                 border: OutlineInputBorder(),
                 labelText: 'Image Artist',
