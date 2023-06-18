@@ -8,7 +8,6 @@ import 'package:exif/exif.dart';
 import 'package:meta_fetch/screens/edit_screen.dart';
 import 'package:meta_fetch/utils/styles.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:flutter_exif_plugin/flutter_exif_plugin.dart';
 import 'package:native_exif/native_exif.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:pulp_flash/pulp_flash.dart';
@@ -23,7 +22,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   File? _imageFile;
-  dynamic _meta;
+  dynamic _mutableMeta;
+  dynamic _immutableMeta;
+  dynamic _attrs;
   dynamic _newImage;
 
   Future<void> _uploadImage(ImageSource source) async {
@@ -42,12 +43,22 @@ class _HomeScreenState extends State<HomeScreen> {
       });
 
       final exif = await Exif.fromPath(pickedImage.path);
-      // final attrs = await exif.getAttributes();
-      // print(attrs?.keys.toList());
+      final attrs = await exif.getAttributes();
+      
 
-      final res = await readExifFromFile(_imageFile!);
+      final immMeta = await readExifFromFile(_imageFile!);
+      
       setState(() {
-        _meta = res;
+        _mutableMeta = exif;
+        _immutableMeta = {
+            "Image Make": immMeta['Image Make'], 
+            "Image Model": immMeta['Image Model'], 
+            "Image Artist": immMeta['Image Artist'], 
+            "Image DateTime": immMeta['Image DateTime'], 
+            "GPS GPSLatitude": immMeta['GPS GPSLatitude'], 
+            "GPS GPSLongitude": immMeta['GPS GPSLongitude'],
+        };
+        _attrs = attrs;
       });
     }
   }
@@ -99,7 +110,7 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => EditScreen(
-          meta: _meta,
+          attrs: _attrs,
           onRemoveAllPressed: _removeAllCallback,
           onSavePressed: _onSaveCallback,
         ),
@@ -111,11 +122,27 @@ class _HomeScreenState extends State<HomeScreen> {
     // Compress image and remove EXIF Metadata
     try {
       final res = await FlutterImageCompress.compressWithFile(_imageFile!.path);
-      final exifRes = await readExifFromBytes(res!);
+      //create temporal file from res
+      final tmpFile = await File('${Directory.systemTemp.path}/${Random().nextInt(10000)}.jpg').writeAsBytes(res as List<int>);
+
+      final mutMeta = await Exif.fromPath(tmpFile.path);
+      final attrs = await mutMeta.getAttributes();
+
+      final immMeta = await readExifFromFile(tmpFile);
+
       // Read EXIF Metadata from compressed image
       setState(() {
         _newImage = res;
-        _meta = exifRes;
+        _mutableMeta = mutMeta;
+        _immutableMeta = {
+            "Image Make": immMeta['Image Make'], 
+            "Image Model": immMeta['Image Model'], 
+            "Image Artist": immMeta['Image Artist'], 
+            "Image DateTime": immMeta['Image DateTime'], 
+            "GPS GPSLatitude": immMeta['GPS GPSLatitude'], 
+            "GPS GPSLongitude": immMeta['GPS GPSLongitude'],
+        };
+        _attrs = attrs;
       });
       // ignore: use_build_context_synchronously
       PulpFlash.of(context).showMessage(context,
@@ -128,32 +155,28 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _onSaveCallback(dynamic newMeta) async {
-    print('NEW META > $newMeta');
-    final file = await Exif.fromPath(_imageFile!.path);
-    final attrs = await file.getAttributes();
-    if (newMeta['dateTime'] != '') {
-      await file.writeAttribute('DateTimeOriginal', newMeta['dateTime']);
-      await file.writeAttribute('DateTimeDigitized', newMeta['dateTime']);
-    }
-    if (newMeta['latitude'] != '') {
-      await file.writeAttribute('GPSLatitude', newMeta['latitude']);
-    }
-    if (newMeta['longitude'] != '') {
-      await file.writeAttribute('GPSLongitude', newMeta['longitude']);
-    }
+  Future<void> _onSaveCallback(dynamic newAttrs) async {
+    // Read EXIF Metadata from original image
+    final exif = await Exif.fromPath(_imageFile!.path);
 
-    final res = await file.getAttribute('DateTimeOriginal');
-    print('ON SAVE > Image DateTime: ${res}');
-    await file.close();
+    // Mutate EXIF Metadata
+    await exif.writeAttributes(newAttrs);
 
-    final exifRes = await readExifFromFile(_imageFile!);
+    // Compress image and keep EXIF Metadata
     final newImage = await FlutterImageCompress.compressWithFile(
-        _imageFile!.path,
-        keepExif: true);
+      _imageFile!.path,
+      keepExif: true
+    );
+
+    // Create temporal file from res
+    final newExif = await Exif.fromPath(_imageFile!.path);
+    final modifiedAttributes = await newExif.getAttributes();
+    print('MODIFIED ATTRS > $modifiedAttributes');
+
+    // Read EXIF Metadata from compressed image
     setState(() {
       _newImage = newImage;
-      _meta = exifRes;
+      _attrs = modifiedAttributes;
     });
   }
 
@@ -161,7 +184,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: appBar(),
-      body: body(_meta),
+      body: body(_mutableMeta),
       backgroundColor: Colors.black,
     );
   }
@@ -189,7 +212,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   uploadButton() {
-    return FloatingActionButton(
+    return FloatingActionButton.extended(
+      label: const Text('Upload', style: TextStyle(color: Colors.white, fontSize: 16, fontFamily: 'Arial', fontWeight: FontWeight.bold)),
+      icon: const Icon(Icons.upload),
       onPressed: () {
         showCupertinoModalPopup(
           context: context,
@@ -223,7 +248,6 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       },
       tooltip: 'Upload Image',
-      child: const Icon(Icons.upload),
     );
   }
 
@@ -271,13 +295,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   body(dynamic meta) {
-    print('BODY > META > $meta');
+    print('BODY > attrs > $_attrs');
     return Stack(
       alignment: Alignment.bottomRight,
       children: [
         ListView(
           children: [
-            if (_imageFile == null && _meta == null)
+            if (_imageFile == null && _mutableMeta == null)
               Container(
                   height: 650,
                   child: Center(
@@ -314,21 +338,42 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+
+                    for (var key in _immutableMeta.keys.toList())
+                      Text(
+                        '$key: ${_immutableMeta[key].toString()}',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                      ),
+
+                    for (var key in _attrs.keys.toList())
+                      Text(
+                        '$key: ${_attrs[key].toString()}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                        ),
+                      ),
+                  ], 
+                  
                     // Text(
-                    //   'EXIF Data: ${_meta}',
+                    //   'EXIF Data: ${_mutableMeta}',
                     //   style: TextStyle(
                     //     color: Colors.white,
                     //     fontSize: 16,
                     //   ),
                     // ),
-                    metaItem('Make: ${meta?['Image Make'].toString()}'),
-                    metaItem('Model: ${meta?['Image Model'].toString()}'),
-                    metaItem('Artist: ${meta?['Image Artist'].toString()}'),
-                    metaItem('DateTime: ${meta?['Image DateTime'].toString()}'),
-                    metaItem('GPS Lat: ${meta?['GPS GPSLatitude'].toString()}'),
-                    metaItem(
-                        'GPS Long: ${meta?['GPS GPSLongitude'].toString()}'),
-                  ],
+                    
+                    // metaItem('Make: ${meta?['Image Make'].toString()}'),
+                    // metaItem('Model: ${meta?['Image Model'].toString()}'),
+                    // metaItem('Artist: ${meta?['Image Artist'].toString()}'),
+                    // metaItem('DateTime: ${meta?['Image DateTime'].toString()}'),
+                    // metaItem('GPS Lat: ${meta?['GPS GPSLatitude'].toString()}'),
+                    // metaItem(
+                    //     'GPS Long: ${meta?['GPS GPSLongitude'].toString()}'),
+                  
                 ),
               ),
           ],

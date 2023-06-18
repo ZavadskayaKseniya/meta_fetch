@@ -1,17 +1,15 @@
-import 'package:exif/exif.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:pulp_flash/pulp_flash.dart';
 
 class EditScreen extends StatefulWidget {
   const EditScreen({
     super.key,
-    required this.meta,
+    required this.attrs,
     required this.onSavePressed,
     required this.onRemoveAllPressed,
   });
 
-  final dynamic meta;
+  final dynamic attrs;
   final void Function(dynamic) onSavePressed;
   final void Function() onRemoveAllPressed;
 
@@ -20,39 +18,22 @@ class EditScreen extends StatefulWidget {
 }
 
 class _EditScreenState extends State<EditScreen> {
-  final makeText = TextEditingController();
-  final modelText = TextEditingController();
-  final artistText = TextEditingController();
-  final dateTimeText = TextEditingController();
-  final latitudeText = TextEditingController();
-  final longitudeText = TextEditingController();
+  dynamic keys;
 
   @override
   void initState() {
-    super.initState();
-    makeText.text = widget.meta['Image Make'].toString();
-    modelText.text = widget.meta['Image Model'].toString();
-    artistText.text = widget.meta['Image Artist'].toString();
-    dateTimeText.text = widget.meta['Image DateTime'].toString();
-    latitudeText.text = widget.meta['GPS GPSLatitude'].toString();
-    longitudeText.text = widget.meta['GPS GPSLongitude'].toString();
+    super.initState();   
+    keys = widget.attrs.keys.toList();
   }
 
+
   void _onSave() {
-    widget.onSavePressed({
-      'make': makeText.text,
-      'model': modelText.text,
-      'artist': artistText.text,
-      'dateTime': dateTimeText.text,
-      'latitude': latitudeText.text,
-      'longitude': longitudeText.text,
-    });
+    widget.onSavePressed(widget.attrs);
     Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
-    print(widget.meta);
     return Scaffold(
       appBar: AppBar(
         actions: [
@@ -104,7 +85,7 @@ class _EditScreenState extends State<EditScreen> {
               ),
             );
           },
-          child: Row(children: const [
+          child: const Row(children: [
             Icon(
               Icons.delete,
               color: Colors.red,
@@ -127,67 +108,25 @@ class _EditScreenState extends State<EditScreen> {
   }
 
   _Body() {
+    print("BODY > ");
     return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-        child: Column(
-          children: [
-            TextField(
-              controller: makeText,
-              enabled: false,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: 'Image Make',
-                hintText: widget.meta['Image Make'].toString(),
+        child: keys != null ? ListView.builder(
+          itemCount: keys.length,
+          itemBuilder: (context, index) {
+            final value = widget.attrs[keys[index]];
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 16.0),
+              child: TextField(
+                onChanged: (value) => widget.attrs[keys[index]] = value,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  labelText: keys[index],
+                  hintText: value.toString(),
+                ),
               ),
-            ),
-            SizedBox(height: 10),
-            TextField(
-              controller: modelText,
-              enabled: false,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: 'Image Model',
-                hintText: widget.meta['Image Model'].toString(),
-              ),
-            ),
-            SizedBox(height: 10),
-            TextField(
-              controller: artistText,
-              enabled: false,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: 'Image Artist',
-                hintText: widget.meta['Image Artist'].toString(),
-              ),
-            ),
-            SizedBox(height: 10),
-            TextField(
-              controller: dateTimeText,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: 'Image DateTime',
-                hintText: widget.meta['Image DateTime'].toString(),
-              ),
-            ),
-            SizedBox(height: 10),
-            TextField(
-              controller: latitudeText,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: 'GPS Latitude',
-                hintText: widget.meta['GPS GPSLatitude'].toString(),
-              ),
-            ),
-            SizedBox(height: 10),
-            TextField(
-              controller: longitudeText,
-              decoration: InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: 'GPS Longitude',
-                hintText: widget.meta['GPS GPSLongitude'].toString(),
-              ),
-            ),
-          ],
-        ));
+            );
+          },
+        ) : const Center(child: CircularProgressIndicator()));
   }
 }

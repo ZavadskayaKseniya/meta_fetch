@@ -6,7 +6,7 @@ final Map<String, Widget Function(dynamic)> appRoutes = {
   //Screens
   'Home': (ctx) => HomeScreen(),
   'Edit': (ctx) => EditScreen(
-        meta: null,
+        attrs: null,
         onRemoveAllPressed: () {},
         onSavePressed: (dynamic) {},
       )
